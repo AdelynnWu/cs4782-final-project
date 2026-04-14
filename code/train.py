@@ -21,7 +21,7 @@ from tqdm import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 
 from config import DreamBoothConfig
-from dataset import DreamBoothDataset, combine
+from dataset import DreamBoothDataset
 
 def load_model_parts(config, device, weight_dtype):
     """load tokenizer, text encoder, VAE, UNet, and scheduler"""
@@ -103,7 +103,7 @@ def train(config: DreamBoothConfig):
     )
 
     collate_fn = partial(
-        combine,
+        dataset.combine,
         prior_preservation=config.prior_preservation,
     )
 
