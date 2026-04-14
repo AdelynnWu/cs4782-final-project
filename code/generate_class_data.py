@@ -1,7 +1,7 @@
 """
 Generate Class Prior Images
 """
-
+ 
 import argparse
 from pathlib import Path
 
