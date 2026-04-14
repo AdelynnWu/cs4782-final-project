@@ -40,7 +40,7 @@ class DreamBoothDataset(Dataset):
         subject_path = Path(subject_dir)
         self.instance_images = sorted([
             p for p in subject_path.iterdir()
-            if p.suffix.lower() in {".jpg"}
+            if p.suffix.lower() in {".png"}
         ])
         if len(self.instance_images) == 0:
             raise ValueError(f"No images found in {subject_dir}")
