@@ -19,7 +19,7 @@ class DreamBoothConfig:
     class_noun: str = "cat"
 
     # data
-    subject_dir: str = "./data/sompong-pics"         
+    subject_dir: str = "./data/sompong_images"         
     class_images_dir: str = "./data/class_images" 
     output_dir: str = "./output"
 
