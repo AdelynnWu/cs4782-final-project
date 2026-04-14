@@ -15,7 +15,7 @@ def generate_class_images(
     num_images: int,
     output_dir: str,
     model_name: str = "sd-legacy/stable-diffusion-v1-5",
-    batch_size: int = 4,
+    batch_size: int = 8,
     guidance_scale: float = 7.5,
     num_inference_steps: int = 25,
     seed: int = 42,
@@ -89,7 +89,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_name", type=str,
                         default="sd-legacy/stable-diffusion-v1-5",
                         help="Pretrained model name")
-    parser.add_argument("--batch_size", type=int, default=4,
+    parser.add_argument("--batch_size", type=int, default=8,
                         help="Batch size for generation")
     parser.add_argument("--seed", type=int, default=42)
 
