@@ -17,7 +17,7 @@ def generate_class_images(
     model_name: str = "sd-legacy/stable-diffusion-v1-5",
     batch_size: int = 4,
     guidance_scale: float = 7.5,
-    num_inference_steps: int = 50,
+    num_inference_steps: int = 25,
     seed: int = 42,
 ):
     """
@@ -28,7 +28,7 @@ def generate_class_images(
         num_images: 200-1000
         output_dir: Where to save generated images
         model_name: Pretrained model to use
-        batch_size: Images per forward pass (adjust for your GPU)
+        batch_size: Images per forward pass
         guidance_scale: Classifier-free guidance scale
         num_inference_steps: Denoising steps
         seed: Random seed for reproducibility
@@ -36,7 +36,6 @@ def generate_class_images(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Check how many already exist (supports resuming)
     existing = list(output_path.glob("*.png"))
     if len(existing) >= num_images:
         print(f"Already have {len(existing)} class images in {output_dir}, skipping.")
@@ -46,7 +45,6 @@ def generate_class_images(
     start_idx = len(existing)
     print(f"Generating {remaining} class images with prompt: '{class_prompt}'")
 
-    # ── Load the pretrained model ──────────────────────────────
     pipeline = StableDiffusionPipeline.from_pretrained(
         model_name,
         torch_dtype=torch.float16,
@@ -89,7 +87,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", type=str, default="./data/class_images",
                         help="Output directory for generated images")
     parser.add_argument("--model_name", type=str,
-                        default="stabilityai/stable-diffusion-2-1-base",
+                        default="sd-legacy/stable-diffusion-v1-5",
                         help="Pretrained model name")
     parser.add_argument("--batch_size", type=int, default=4,
                         help="Batch size for generation")
