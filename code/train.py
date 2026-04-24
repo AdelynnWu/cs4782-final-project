@@ -34,14 +34,13 @@ def load_model_parts(config, device, weight_dtype):
     vae.requires_grad_(False)
     vae.to(device, dtype=weight_dtype)
 
-    unet.to(device, dtype=weight_dtype)
+    # load in fp32; train() will place on device with correct dtype
     unet.train()
 
     if config.train_text_encoder:
         text_encoder.train()
     else:
         text_encoder.requires_grad_(False)
-    text_encoder.to(device, dtype=weight_dtype)
 
     return tokenizer, text_encoder, vae, unet, noise_scheduler
 
@@ -49,7 +48,7 @@ def train(config: DreamBoothConfig):
     """Run the full DreamBooth training pipeline."""
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    weight_dtype = torch.float16 if config.mixed_precision == "fp16" else torch.float32
+    weight_dtype = torch.float32
 
     print("=" * 60)
     print("DreamBooth Training")
@@ -71,21 +70,25 @@ def train(config: DreamBoothConfig):
     tokenizer, text_encoder, vae, unet, noise_scheduler = load_model_parts(
     config,device, weight_dtype)
 
-    # freeze VAE 
+    # freeze VAE — fp16 is fine since it is never updated
     vae.requires_grad_(False)
     vae.to(device, dtype=weight_dtype)
 
-    # fine tune UNet
-    unet.to(device, dtype=weight_dtype)
+    # keep UNet in fp32 so Adam optimizer states don't overflow;
+    # autocast handles fp16 compute in the forward pass
+    unet.to(device, dtype=torch.float32)
     unet.train()
+    # gradient checkpointing recomputes activations during backward instead of
+    # storing them — cuts activation memory ~60% at the cost of ~25% more compute
+    unet.enable_gradient_checkpointing()
 
-    # fine tune text encoder
+    # freeze text encoder to save ~1 GB of model + optimizer memory on Colab;
+    # fp16 is fine since its weights are never updated
+    text_encoder.requires_grad_(False)
+    text_encoder.to(device, dtype=weight_dtype)
     if config.train_text_encoder:
-        text_encoder.train()
-        text_encoder.to(device, dtype=weight_dtype)
-    else:
-        text_encoder.requires_grad_(False)
-        text_encoder.to(device, dtype=weight_dtype)
+        print("  [Note] train_text_encoder is set but disabled to save GPU memory."
+              " Remove this block to re-enable at the cost of ~1 GB VRAM.")
 
     
     # PREPARE DATASET
@@ -130,6 +133,7 @@ def train(config: DreamBoothConfig):
         betas=(config.adam_beta1, config.adam_beta2),
         weight_decay=config.adam_weight_decay,
         eps=config.adam_epsilon,
+        foreach=False,
     )
 
     # learning rate scheduler
@@ -150,6 +154,7 @@ def train(config: DreamBoothConfig):
 
     global_step = 0
     progress_bar = tqdm(total=config.max_train_steps, desc="Training")
+    scaler = torch.cuda.amp.GradScaler(enabled=(weight_dtype == torch.float16))
 
     while global_step < config.max_train_steps:
         for batch in dataloader:
@@ -160,10 +165,15 @@ def train(config: DreamBoothConfig):
             pixel_values = batch["pixel_values"].to(device, dtype=weight_dtype)
             input_ids = batch["input_ids"].to(device)
 
-            # encode images to latent space using frozen VAE 
+            # encode images to latent space using frozen VAE
             with torch.no_grad():
                 latents = vae.encode(pixel_values).latent_dist.sample()
                 latents = latents * vae.config.scaling_factor
+
+            # [DEBUG] check latent health on first step
+            if global_step == 0:
+                tqdm.write(f"[DEBUG] pixel_values: shape={pixel_values.shape} min={pixel_values.min():.3f} max={pixel_values.max():.3f} nan={pixel_values.isnan().any()}")
+                tqdm.write(f"[DEBUG] latents:       shape={latents.shape} mean={latents.float().mean():.3f} std={latents.float().std():.3f} nan={latents.isnan().any()}")
 
             # sample noise and timesteps
             noise = torch.randn_like(latents)
@@ -178,56 +188,61 @@ def train(config: DreamBoothConfig):
             # add noise to latents according to the noise schedule
             noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
-            # get text conditioning 
-            encoder_hidden_states = text_encoder(input_ids)[0]
-            if weight_dtype == torch.float16:
-                encoder_hidden_states = encoder_hidden_states.to(dtype=weight_dtype)
+            with torch.cuda.amp.autocast(enabled=(weight_dtype == torch.float16)):
+                # get text conditioning
+                encoder_hidden_states = text_encoder(input_ids)[0]
 
-            # Unet predicts the noise (denoising)
-            noise_pred = unet(
-                noisy_latents,
-                timesteps,
-                encoder_hidden_states=encoder_hidden_states,
-            ).sample
+                # Unet predicts the noise (denoising)
+                noise_pred = unet(
+                    noisy_latents,
+                    timesteps,
+                    encoder_hidden_states=encoder_hidden_states,
+                ).sample
 
-            # compute total loss
-            if config.prior_preservation:
-                # split predictions back into subject and class halves
-                noise_pred_subject, noise_pred_class = torch.chunk(noise_pred, 2, dim=0)
-                noise_subject, noise_class = torch.chunk(noise, 2, dim=0)
+                # [DEBUG] check noise_pred health on first step
+                if global_step == 0:
+                    tqdm.write(f"[DEBUG] noise_pred:   shape={noise_pred.shape} mean={noise_pred.float().mean():.3f} std={noise_pred.float().std():.3f} nan={noise_pred.isnan().any()} inf={noise_pred.isinf().any()}")
 
-                # compute reconstruction loss on subject images
-                loss_subject = F.mse_loss(
-                    noise_pred_subject.float(),
-                    noise_subject.float(),
-                    reduction="mean",
-                )
+                # compute total loss
+                if config.prior_preservation:
+                    # split predictions back into subject and class halves
+                    noise_pred_subject, noise_pred_class = torch.chunk(noise_pred, 2, dim=0)
+                    noise_subject, noise_class = torch.chunk(noise, 2, dim=0)
 
-                # compute prior preservation loss on class images
-                loss_prior = F.mse_loss(
-                    noise_pred_class.float(),
-                    noise_class.float(),
-                    reduction="mean",
-                )
+                    # compute reconstruction loss on subject images
+                    loss_subject = F.mse_loss(
+                        noise_pred_subject.float(),
+                        noise_subject.float(),
+                        reduction="mean",
+                    )
 
-                # combined loss: L = L_subject + λ · L_prior
-                loss = loss_subject + config.prior_loss_weight * loss_prior
-            else:
-                # if no prior preservation, compute only reconstruction loss
-                loss = F.mse_loss(
-                    noise_pred.float(),
-                    noise.float(),
-                    reduction="mean",
-                )
+                    # compute prior preservation loss on class images
+                    loss_prior = F.mse_loss(
+                        noise_pred_class.float(),
+                        noise_class.float(),
+                        reduction="mean",
+                    )
 
-            # backprop
-            loss.backward()
+                    # combined loss: L = L_subject + λ · L_prior
+                    loss = loss_subject + config.prior_loss_weight * loss_prior
+                else:
+                    # if no prior preservation, compute only reconstruction loss
+                    loss = F.mse_loss(
+                        noise_pred.float(),
+                        noise.float(),
+                        reduction="mean",
+                    )
+
+            # backprop with gradient scaling to prevent fp16 underflow
+            scaler.scale(loss).backward()
 
             # Gradient clipping for stability
             if config.max_grad_norm > 0:
+                scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(params_to_optimize, config.max_grad_norm)
 
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
             lr_scheduler.step()
             optimizer.zero_grad()
 
@@ -236,9 +251,12 @@ def train(config: DreamBoothConfig):
 
             # logging
             if global_step % config.log_every_n_steps == 0:
-                log_msg = f"Step {global_step}: loss={loss.item():.4f}"
+                loss_val = loss.item()
+                log_msg = f"Step {global_step}: loss={loss_val:.4f} scaler_scale={scaler.get_scale():.0f}"
                 if config.prior_preservation:
                     log_msg += f" (subject={loss_subject.item():.4f}, prior={loss_prior.item():.4f})"
+                if math.isnan(loss_val) or math.isinf(loss_val):
+                    log_msg += "  *** WARNING: loss is NaN/Inf — weights are corrupted ***"
                 tqdm.write(log_msg)
 
             # checkpointing 
@@ -248,6 +266,17 @@ def train(config: DreamBoothConfig):
                 tqdm.write(f"  Saved checkpoint to {save_path}")
 
     progress_bar.close()
+
+    # [DEBUG] check UNet weights for NaN/Inf before saving
+    nan_params, inf_params = 0, 0
+    for _, p in unet.named_parameters():
+        if p.isnan().any():
+            nan_params += 1
+        if p.isinf().any():
+            inf_params += 1
+    print(f"\n[DEBUG] UNet weight health: {nan_params} params with NaN, {inf_params} params with Inf")
+    if nan_params > 0 or inf_params > 0:
+        print("[DEBUG] *** Weights are corrupted — saved model will produce black images ***")
 
     # SAVE FINAL MODEL
 

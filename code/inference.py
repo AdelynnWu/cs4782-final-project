@@ -123,44 +123,44 @@ def generate_grid(
 
 # # **** example prompts here for convenience! we can use these to test
  
-# EXAMPLE_PROMPTS = {
-#     "recontextualization": [
-#         "a {id} {cls} in the jungle",
-#         "a {id} {cls} in the snow",
-#         "a {id} {cls} on the beach",
-#         "a {id} {cls} on a cobblestone street",
-#         "a {id} {cls} with the Eiffel Tower in the background",
-#         "a {id} {cls} floating on top of water",
-#         "a {id} {cls} with a mountain in the background",
-#     ],
-#     "art_renditions": [
-#         "a painting of a {id} {cls} in the style of Vincent Van Gogh",
-#         "a painting of a {id} {cls} in the style of Leonardo da Vinci",
-#         "a statue of a {id} {cls} in the style of Michelangelo",
-#         "a watercolor painting of a {id} {cls}",
-#         "an oil painting of a {id} {cls}",
-#     ],
-#     "property_modification": [
-#         "a red {id} {cls}",
-#         "a purple {id} {cls}",
-#         "a shiny {id} {cls}",
-#         "a transparent {id} {cls}",
-#         "a wet {id} {cls}",
-#     ],
-#     "view_synthesis": [
-#         "a {id} {cls} seen from the top",
-#         "a {id} {cls} seen from the bottom",
-#         "a {id} {cls} seen from the side",
-#         "a {id} {cls} seen from the back",
-#     ],
-#     "accessorization": [
-#         "a {id} {cls} wearing a red hat",
-#         "a {id} {cls} wearing a santa hat",
-#         "a {id} {cls} in a chef outfit",
-#         "a {id} {cls} in a police outfit",
-#         "a {id} {cls} wearing pink glasses",
-#     ],
-# }
+EXAMPLE_PROMPTS = {
+    "recontextualization": [
+        "a {id} {cls} in the jungle",
+        "a {id} {cls} in the snow",
+        "a {id} {cls} on the beach",
+        "a {id} {cls} on a cobblestone street",
+        "a {id} {cls} with the Eiffel Tower in the background",
+        "a {id} {cls} floating on top of water",
+        "a {id} {cls} with a mountain in the background",
+    ],
+    "art_renditions": [
+        "a painting of a {id} {cls} in the style of Vincent Van Gogh",
+        "a painting of a {id} {cls} in the style of Leonardo da Vinci",
+        "a statue of a {id} {cls} in the style of Michelangelo",
+        "a watercolor painting of a {id} {cls}",
+        "an oil painting of a {id} {cls}",
+    ],
+    "property_modification": [
+        "a red {id} {cls}",
+        "a purple {id} {cls}",
+        "a shiny {id} {cls}",
+        "a transparent {id} {cls}",
+        "a wet {id} {cls}",
+    ],
+    "view_synthesis": [
+        "a {id} {cls} seen from the top",
+        "a {id} {cls} seen from the bottom",
+        "a {id} {cls} seen from the side",
+        "a {id} {cls} seen from the back",
+    ],
+    "accessorization": [
+        "a {id} {cls} wearing a red hat",
+        "a {id} {cls} wearing a santa hat",
+        "a {id} {cls} in a chef outfit",
+        "a {id} {cls} in a police outfit",
+        "a {id} {cls} wearing pink glasses",
+    ],
+}
 
 
 if __name__ == "__main__":

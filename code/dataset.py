@@ -112,7 +112,8 @@ class DreamBoothDataset(Dataset):
 
         return sample
     
-    def combine(batch: list[dict], prior_preservation: bool = False) -> dict:
+    @staticmethod
+    def combine(batch: list[dict], prior_preservation: bool = True) -> dict:
         """
         Stacks instance and class data.
     
