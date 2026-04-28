@@ -24,23 +24,31 @@ from config import DreamBoothConfig
 from dataset import DreamBoothDataset
 
 def load_model_parts(config, device, weight_dtype):
-    """load tokenizer, text encoder, VAE, UNet, and scheduler"""
+    """Load and fully configure all model components: device, dtype, grad, and train mode."""
     tokenizer = CLIPTokenizer.from_pretrained(config.pretrained_model, subfolder="tokenizer")
     text_encoder = CLIPTextModel.from_pretrained(config.pretrained_model, subfolder="text_encoder")
     vae = AutoencoderKL.from_pretrained(config.pretrained_model, subfolder="vae")
     unet = UNet2DConditionModel.from_pretrained(config.pretrained_model, subfolder="unet")
     noise_scheduler = DDPMScheduler.from_pretrained(config.pretrained_model, subfolder="scheduler")
 
+    # VAE: always frozen; fp16 is fine since it is never updated
     vae.requires_grad_(False)
     vae.to(device, dtype=weight_dtype)
 
-    # load in fp32; train() will place on device with correct dtype
+    # UNet: always trained; kept in fp32 so Adam optimizer states don't overflow
+    unet.to(device, dtype=torch.float32)
     unet.train()
+    # recomputes activations during backward instead of storing them — cuts ~60% activation memory
+    unet.enable_gradient_checkpointing()
 
+    # Text encoder: conditionally trained
     if config.train_text_encoder:
+        text_encoder.requires_grad_(True)
+        text_encoder.to(device, dtype=torch.float32)
         text_encoder.train()
     else:
         text_encoder.requires_grad_(False)
+        text_encoder.to(device, dtype=weight_dtype)
 
     return tokenizer, text_encoder, vae, unet, noise_scheduler
 
@@ -66,32 +74,8 @@ def train(config: DreamBoothConfig):
     # LOAD PRETRAINED MODEL COMPONENTS
 
     print("\n[1/5] Loading pretrained model components...")
-    # load model 
     tokenizer, text_encoder, vae, unet, noise_scheduler = load_model_parts(
-    config,device, weight_dtype)
-
-    # freeze VAE — fp16 is fine since it is never updated
-    vae.requires_grad_(False)
-    vae.to(device, dtype=weight_dtype)
-
-    # keep UNet in fp32 so Adam optimizer states don't overflow;
-    # autocast handles fp16 compute in the forward pass
-    unet.to(device, dtype=torch.float32)
-    unet.train()
-    # gradient checkpointing recomputes activations during backward instead of
-    # storing them — cuts activation memory ~60% at the cost of ~25% more compute
-    unet.enable_gradient_checkpointing()
-
-    # freeze text encoder to save ~1 GB of model + optimizer memory on Colab;
-    # fp16 is fine since its weights are never updated
-    text_encoder.requires_grad_(False)
-    text_encoder.to(device, dtype=weight_dtype)
-    if config.train_text_encoder:
-        text_encoder.to(device, dtype=torch.float32)
-        text_encoder.train()
-    else:
-        text_encoder.requires_grad_(False)
-        text_encoder.to(device, dtype=weight_dtype)
+        config, device, weight_dtype)
 
     
     # PREPARE DATASET
