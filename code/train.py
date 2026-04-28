@@ -44,11 +44,96 @@ def load_model_parts(config, device, weight_dtype):
 
     return tokenizer, text_encoder, vae, unet, noise_scheduler
 
+
+def _identifier_token_ids(tokenizer, identifier_token: str) -> list[int]:
+    token_ids = tokenizer.encode(identifier_token, add_special_tokens=False)
+    if not token_ids:
+        raise ValueError(f"Identifier token '{identifier_token}' produced no tokenizer ids")
+    return token_ids
+
+
+def _enable_identifier_embedding_training(tokenizer, text_encoder, identifier_token: str):
+    """Train only the embedding rows for the identifier token."""
+    token_ids = _identifier_token_ids(tokenizer, identifier_token)
+    token_set = sorted(set(token_ids))
+    embedding = text_encoder.get_input_embeddings()
+    embedding.weight.requires_grad_(True)
+
+    mask = torch.zeros(
+        (embedding.weight.shape[0], 1),
+        device=embedding.weight.device,
+        dtype=embedding.weight.dtype,
+    )
+    mask[token_set] = 1
+
+    def keep_identifier_rows_only(grad):
+        return grad * mask.to(device=grad.device, dtype=grad.dtype)
+
+    embedding.weight.register_hook(keep_identifier_rows_only)
+    return [embedding.weight], token_set
+
+
+def _get_mixed_precision_dtype(config: DreamBoothConfig, device: torch.device):
+    if device.type != "cuda":
+        return torch.float32
+    if config.mixed_precision == "fp16":
+        return torch.float16
+    if config.mixed_precision == "bf16":
+        return torch.bfloat16
+    return torch.float32
+
+
+def _set_unet_trainable_params(unet, mode: str):
+    if mode not in {"full", "attention", "cross_attention"}:
+        raise ValueError("--unet_train_mode must be one of: full, attention, cross_attention")
+
+    if mode == "full":
+        unet.requires_grad_(True)
+        return
+
+    unet.requires_grad_(False)
+    for name, param in unet.named_parameters():
+        if mode == "attention" and (".attn1." in name or ".attn2." in name):
+            param.requires_grad_(True)
+        elif mode == "cross_attention" and ".attn2." in name:
+            param.requires_grad_(True)
+
+
+def _create_optimizer(config: DreamBoothConfig, optimizer_param_groups):
+    if config.use_8bit_adam:
+        try:
+            import bitsandbytes as bnb
+
+            print("  Optimizer: bitsandbytes AdamW8bit")
+            return bnb.optim.AdamW8bit(
+                optimizer_param_groups,
+                lr=config.learning_rate,
+                betas=(config.adam_beta1, config.adam_beta2),
+                eps=config.adam_epsilon,
+            )
+        except ImportError:
+            raise RuntimeError(
+                "bitsandbytes is required for the default low-memory optimizer. "
+                "Install it with `pip install bitsandbytes`, or pass "
+                "`--no_8bit_adam` if you have enough VRAM for torch AdamW."
+            )
+
+    print("  Optimizer: torch AdamW")
+    return torch.optim.AdamW(
+        optimizer_param_groups,
+        lr=config.learning_rate,
+        betas=(config.adam_beta1, config.adam_beta2),
+        eps=config.adam_epsilon,
+        foreach=False,
+    )
+
+
 def train(config: DreamBoothConfig):
     """Run the full DreamBooth training pipeline."""
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    weight_dtype = torch.float32
+    weight_dtype = _get_mixed_precision_dtype(config, device)
+    autocast_enabled = device.type == "cuda" and weight_dtype in {torch.float16, torch.bfloat16}
 
     print("=" * 60)
     print("DreamBooth Training")
@@ -59,7 +144,10 @@ def train(config: DreamBoothConfig):
     print(f"  Learning rate:   {config.learning_rate}")
     print(f"  Max steps:       {config.max_train_steps}")
     print(f"  Train text encoder: {config.train_text_encoder}")
-    print(f"  Device: {device}, dtype: {weight_dtype}")
+    print(f"  Train identifier embedding: {config.train_identifier_embedding}")
+    print(f"  UNet train mode: {config.unet_train_mode}")
+    print(f"  8-bit Adam: {config.use_8bit_adam}")
+    print(f"  Device: {device}, compute dtype: {weight_dtype}")
     print("=" * 60)
 
 
@@ -74,24 +162,45 @@ def train(config: DreamBoothConfig):
     vae.requires_grad_(False)
     vae.to(device, dtype=weight_dtype)
 
-    # keep UNet in fp32 so Adam optimizer states don't overflow;
-    # autocast handles fp16 compute in the forward pass
+    # Keep trainable weights in fp32, but use autocast for activations.
     unet.to(device, dtype=torch.float32)
     unet.train()
+    _set_unet_trainable_params(unet, config.unet_train_mode)
     # gradient checkpointing recomputes activations during backward instead of
     # storing them — cuts activation memory ~60% at the cost of ~25% more compute
     unet.enable_gradient_checkpointing()
+    if config.enable_xformers:
+        try:
+            unet.enable_xformers_memory_efficient_attention()
+            print("  xFormers memory-efficient attention: enabled")
+        except Exception as exc:
+            print(f"  xFormers memory-efficient attention: unavailable ({exc})")
 
-    # freeze text encoder to save ~1 GB of model + optimizer memory on Colab;
-    # fp16 is fine since its weights are never updated
+    identifier_embedding_params = []
+    identifier_token_ids = []
     text_encoder.requires_grad_(False)
     text_encoder.to(device, dtype=weight_dtype)
     if config.train_text_encoder:
         text_encoder.to(device, dtype=torch.float32)
+        text_encoder.requires_grad_(True)
         text_encoder.train()
-    else:
-        text_encoder.requires_grad_(False)
-        text_encoder.to(device, dtype=weight_dtype)
+        if hasattr(text_encoder, "gradient_checkpointing_enable"):
+            text_encoder.gradient_checkpointing_enable()
+    elif config.train_identifier_embedding:
+        # The embedding row is trainable, so keep CLIP in fp32. GradScaler
+        # cannot unscale fp16 gradients.
+        text_encoder.to(device, dtype=torch.float32)
+        text_encoder.train()
+        if hasattr(text_encoder, "gradient_checkpointing_enable"):
+            text_encoder.gradient_checkpointing_enable()
+        identifier_embedding_params, identifier_token_ids = _enable_identifier_embedding_training(
+            tokenizer,
+            text_encoder,
+            config.identifier_token,
+        )
+        print(f"  Identifier token ids: {identifier_token_ids}")
+        if len(identifier_token_ids) > 1:
+            print("  [Note] identifier splits into multiple tokens; a single-token identifier is usually stronger.")
 
     
     # PREPARE DATASET
@@ -126,18 +235,28 @@ def train(config: DreamBoothConfig):
     print("\n[3/5] Setting up optimizer...")
 
     # collect trainable parameters
-    params_to_optimize = list(unet.parameters())
+    unet_params = [p for p in unet.parameters() if p.requires_grad]
+    if not unet_params:
+        raise RuntimeError(f"No UNet parameters selected for mode '{config.unet_train_mode}'")
+    params_to_optimize = list(unet_params)
+    optimizer_param_groups = [
+        {"params": unet_params, "weight_decay": config.adam_weight_decay},
+    ]
     if config.train_text_encoder:
-        params_to_optimize += list(text_encoder.parameters())
+        text_encoder_params = [p for p in text_encoder.parameters() if p.requires_grad]
+        params_to_optimize += text_encoder_params
+        optimizer_param_groups.append(
+            {"params": text_encoder_params, "weight_decay": config.adam_weight_decay}
+        )
+    elif identifier_embedding_params:
+        params_to_optimize += identifier_embedding_params
+        # Do not apply AdamW weight decay to the embedding matrix. With masked
+        # gradients, decoupled weight decay would still move every token row.
+        optimizer_param_groups.append(
+            {"params": identifier_embedding_params, "weight_decay": 0.0}
+        )
 
-    optimizer = torch.optim.AdamW(
-        params_to_optimize,
-        lr=config.learning_rate,
-        betas=(config.adam_beta1, config.adam_beta2),
-        weight_decay=config.adam_weight_decay,
-        eps=config.adam_epsilon,
-        foreach=False,
-    )
+    optimizer = _create_optimizer(config, optimizer_param_groups)
 
     # learning rate scheduler
     lr_scheduler = get_scheduler(
@@ -157,7 +276,9 @@ def train(config: DreamBoothConfig):
 
     global_step = 0
     progress_bar = tqdm(total=config.max_train_steps, desc="Training")
-    scaler = torch.cuda.amp.GradScaler(enabled=(weight_dtype == torch.float16))
+    scaler = torch.cuda.amp.GradScaler(
+        enabled=(device.type == "cuda" and weight_dtype == torch.float16)
+    )
 
     while global_step < config.max_train_steps:
         for batch in dataloader:
@@ -169,7 +290,10 @@ def train(config: DreamBoothConfig):
             input_ids = batch["input_ids"].to(device)
 
             # encode images to latent space using frozen VAE
-            with torch.no_grad():
+            with torch.no_grad(), torch.cuda.amp.autocast(
+                enabled=autocast_enabled,
+                dtype=weight_dtype,
+            ):
                 latents = vae.encode(pixel_values).latent_dist.sample()
                 latents = latents * vae.config.scaling_factor
 
@@ -191,7 +315,10 @@ def train(config: DreamBoothConfig):
             # add noise to latents according to the noise schedule
             noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
-            with torch.cuda.amp.autocast(enabled=(weight_dtype == torch.float16)):
+            with torch.cuda.amp.autocast(
+                enabled=autocast_enabled,
+                dtype=weight_dtype,
+            ):
                 # get text conditioning
                 encoder_hidden_states = text_encoder(input_ids)[0]
 
@@ -247,7 +374,7 @@ def train(config: DreamBoothConfig):
             scaler.step(optimizer)
             scaler.update()
             lr_scheduler.step()
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
 
             global_step += 1
             progress_bar.update(1)
@@ -323,8 +450,22 @@ if __name__ == "__main__":
                         help="Max training steps")
     parser.add_argument("--no_prior_preservation", action="store_true",
                         help="Disable prior preservation loss")
+    parser.add_argument("--train_text_encoder", action="store_true",
+                        help="Train the full text encoder. High VRAM.")
     parser.add_argument("--no_train_text_encoder", action="store_true",
-                        help="Freeze text encoder during training")
+                        help=argparse.SUPPRESS)
+    parser.add_argument("--no_identifier_embedding", action="store_true",
+                        help="Disable low-memory identifier-token embedding training")
+    parser.add_argument("--unet_train_mode", type=str, default="cross_attention",
+                        choices=["full", "attention", "cross_attention"],
+                        help="How much of the UNet to train")
+    parser.add_argument("--mixed_precision", type=str, default="fp16",
+                        choices=["no", "fp16", "bf16"],
+                        help="Forward/activation precision")
+    parser.add_argument("--no_8bit_adam", action="store_true",
+                        help="Disable bitsandbytes AdamW8bit")
+    parser.add_argument("--no_xformers", action="store_true",
+                        help="Disable xFormers memory-efficient attention")
     parser.add_argument("--resolution", type=int, default=512)
     parser.add_argument("--seed", type=int, default=42)
 
@@ -339,7 +480,12 @@ if __name__ == "__main__":
         learning_rate=args.lr,
         max_train_steps=args.steps,
         prior_preservation=not args.no_prior_preservation,
-        train_text_encoder=not args.no_train_text_encoder,
+        train_text_encoder=args.train_text_encoder and not args.no_train_text_encoder,
+        train_identifier_embedding=not args.no_identifier_embedding,
+        unet_train_mode=args.unet_train_mode,
+        mixed_precision=args.mixed_precision,
+        use_8bit_adam=not args.no_8bit_adam,
+        enable_xformers=not args.no_xformers,
         resolution=args.resolution,
         seed=args.seed,
     )
