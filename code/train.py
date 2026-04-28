@@ -317,7 +317,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=5e-6,
                         help="Learning rate (paper: 5e-6 for SD)")
     parser.add_argument("--steps", type=int, default=1000,
-                        help="Max training steps (paper: ~1000)")
+                        help="Max training steps")
     parser.add_argument("--no_prior_preservation", action="store_true",
                         help="Disable prior preservation loss")
     parser.add_argument("--no_train_text_encoder", action="store_true",
