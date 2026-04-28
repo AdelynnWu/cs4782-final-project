@@ -54,7 +54,7 @@ class DreamBoothConfig:
 
     seed: int = 42
     mixed_precision: str = "fp16"
-    save_every_n_steps: int = 500
+    save_every_n_steps: int = 200
     log_every_n_steps: int = 50
 
     @property

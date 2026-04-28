@@ -87,8 +87,11 @@ def train(config: DreamBoothConfig):
     text_encoder.requires_grad_(False)
     text_encoder.to(device, dtype=weight_dtype)
     if config.train_text_encoder:
-        print("  [Note] train_text_encoder is set but disabled to save GPU memory."
-              " Remove this block to re-enable at the cost of ~1 GB VRAM.")
+        text_encoder.to(device, dtype=torch.float32)
+        text_encoder.train()
+    else:
+        text_encoder.requires_grad_(False)
+        text_encoder.to(device, dtype=weight_dtype)
 
     
     # PREPARE DATASET
