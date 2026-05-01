@@ -35,10 +35,12 @@ class DreamBoothConfig:
     adam_weight_decay: float = 1e-2
     adam_epsilon: float = 1e-8
     max_grad_norm: float = 1.0
+    use_8bit_adam: bool = True
+    enable_xformers: bool = True
 
     # prior preservation
-    prior_preservation: bool = True
-    prior_loss_weight: float = 0.5
+    prior_preservation: bool = False
+    prior_loss_weight: float = 0.0
     num_class_images: int = 64
 
     # image
@@ -46,8 +48,11 @@ class DreamBoothConfig:
     center_crop: bool = True
 
     # finetune
-    train_text_encoder: bool = True
-    text_encoder_lr: float = 1e-6
+    train_text_encoder: bool = False
+    train_identifier_embedding: bool = True
+    # full, attention, or cross_attention. cross_attention is the safest
+    # default for 14-16 GB GPUs.
+    unet_train_mode: str = "cross_attention"
 
     # inference
     num_inference_steps: int = 50
@@ -60,11 +65,12 @@ class DreamBoothConfig:
 
     @property
     def instance_prompt(self) -> str:
-        return f"a {self.identifier_token} {self.class_noun}"
+        return f"a photo of a {self.identifier_token} {self.class_noun}"
 
     @property
     def class_prompt(self) -> str:
-        return f"a {self.class_noun}"
+        return f"a photo of a {self.class_noun}"
+
 
     def __post_init__(self):
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
