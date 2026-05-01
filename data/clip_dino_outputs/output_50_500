@@ -1,15 +1,15 @@
 DreamBooth Evaluation Metrics
 ========================================
 Real image directory : data/water-bottle-subject-img
-Generated image directory : output/inference_output_water-bottle-prev-0-500-steps
+Generated image directory : output/inference_output_water-bottle-prev-50-500-steps
 Prompt : a photo of a vy water bottle on a beach
 Number of real images : 5
 Number of generated images : 4
 
 Results
 ----------------------------------------
-DINO   (subject fidelity) : 0.5496
-CLIP-I (subject fidelity) : 0.7813
+CLIP-I (subject fidelity) : 0.7414
+DINO   (subject fidelity) : 0.5129
 CLIP-T (prompt fidelity)  : 0.3121
 
 Reference ranges (from DreamBooth paper)
