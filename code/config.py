@@ -39,8 +39,8 @@ class DreamBoothConfig:
     enable_xformers: bool = True
 
     # prior preservation
-    prior_preservation: bool = True
-    prior_loss_weight: float = 1.0
+    prior_preservation: bool = False
+    prior_loss_weight: float = 0.0
     num_class_images: int = 64
 
     # image
@@ -70,6 +70,7 @@ class DreamBoothConfig:
     @property
     def class_prompt(self) -> str:
         return f"a photo of a {self.class_noun}"
+
 
     def __post_init__(self):
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
