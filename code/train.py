@@ -445,7 +445,8 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", type=str, default="./output",
                         help="Where to save the fine-tuned model")
     parser.add_argument("--lr", type=float, default=5e-6,
-                        help="Learning rate (paper: 5e-6 for SD)")
+                        help="Learning rate")
+    parser.add_argument("--text_encoder_lr", type=float, default=1e-6)
     parser.add_argument("--steps", type=int, default=1000,
                         help="Max training steps")
     parser.add_argument("--no_prior_preservation", action="store_true",
@@ -478,6 +479,7 @@ if __name__ == "__main__":
         identifier_token=args.identifier,
         output_dir=args.output_dir,
         learning_rate=args.lr,
+        text_encoder_lr=args.text_encoder_lr,
         max_train_steps=args.steps,
         prior_preservation=not args.no_prior_preservation,
         train_text_encoder=args.train_text_encoder and not args.no_train_text_encoder,
