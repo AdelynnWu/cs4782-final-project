@@ -23,13 +23,22 @@ from transformers import CLIPTextModel, CLIPTokenizer
 from config import DreamBoothConfig
 from dataset import DreamBoothDataset
 
+
 def load_model_parts(config, device, weight_dtype):
     """load tokenizer, text encoder, VAE, UNet, and scheduler"""
-    tokenizer = CLIPTokenizer.from_pretrained(config.pretrained_model, subfolder="tokenizer")
-    text_encoder = CLIPTextModel.from_pretrained(config.pretrained_model, subfolder="text_encoder")
+    tokenizer = CLIPTokenizer.from_pretrained(
+        config.pretrained_model, subfolder="tokenizer"
+    )
+    text_encoder = CLIPTextModel.from_pretrained(
+        config.pretrained_model, subfolder="text_encoder"
+    )
     vae = AutoencoderKL.from_pretrained(config.pretrained_model, subfolder="vae")
-    unet = UNet2DConditionModel.from_pretrained(config.pretrained_model, subfolder="unet")
-    noise_scheduler = DDPMScheduler.from_pretrained(config.pretrained_model, subfolder="scheduler")
+    unet = UNet2DConditionModel.from_pretrained(
+        config.pretrained_model, subfolder="unet"
+    )
+    noise_scheduler = DDPMScheduler.from_pretrained(
+        config.pretrained_model, subfolder="scheduler"
+    )
 
     vae.requires_grad_(False)
     vae.to(device, dtype=weight_dtype)
@@ -48,11 +57,15 @@ def load_model_parts(config, device, weight_dtype):
 def _identifier_token_ids(tokenizer, identifier_token: str) -> list[int]:
     token_ids = tokenizer.encode(identifier_token, add_special_tokens=False)
     if not token_ids:
-        raise ValueError(f"Identifier token '{identifier_token}' produced no tokenizer ids")
+        raise ValueError(
+            f"Identifier token '{identifier_token}' produced no tokenizer ids"
+        )
     return token_ids
 
 
-def _enable_identifier_embedding_training(tokenizer, text_encoder, identifier_token: str):
+def _enable_identifier_embedding_training(
+    tokenizer, text_encoder, identifier_token: str
+):
     """Train only the embedding rows for the identifier token."""
     token_ids = _identifier_token_ids(tokenizer, identifier_token)
     token_set = sorted(set(token_ids))
@@ -85,7 +98,9 @@ def _get_mixed_precision_dtype(config: DreamBoothConfig, device: torch.device):
 
 def _set_unet_trainable_params(unet, mode: str):
     if mode not in {"full", "attention", "cross_attention"}:
-        raise ValueError("--unet_train_mode must be one of: full, attention, cross_attention")
+        raise ValueError(
+            "--unet_train_mode must be one of: full, attention, cross_attention"
+        )
 
     if mode == "full":
         unet.requires_grad_(True)
@@ -133,14 +148,19 @@ def train(config: DreamBoothConfig):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     weight_dtype = _get_mixed_precision_dtype(config, device)
-    autocast_enabled = device.type == "cuda" and weight_dtype in {torch.float16, torch.bfloat16}
+    autocast_enabled = device.type == "cuda" and weight_dtype in {
+        torch.float16,
+        torch.bfloat16,
+    }
 
     print("=" * 60)
     print("DreamBooth Training")
     print("=" * 60)
     print(f"  Instance prompt: '{config.instance_prompt}'")
     print(f"  Class prompt:    '{config.class_prompt}'")
-    print(f"  Prior preservation: {config.prior_preservation} (λ={config.prior_loss_weight})")
+    print(
+        f"  Prior preservation: {config.prior_preservation} (λ={config.prior_loss_weight})"
+    )
     print(f"  Learning rate:   {config.learning_rate}")
     print(f"  Max steps:       {config.max_train_steps}")
     print(f"  Train text encoder: {config.train_text_encoder}")
@@ -150,13 +170,13 @@ def train(config: DreamBoothConfig):
     print(f"  Device: {device}, compute dtype: {weight_dtype}")
     print("=" * 60)
 
-
     # LOAD PRETRAINED MODEL COMPONENTS
 
     print("\n[1/5] Loading pretrained model components...")
-    # load model 
+    # load model
     tokenizer, text_encoder, vae, unet, noise_scheduler = load_model_parts(
-    config,device, weight_dtype)
+        config, device, weight_dtype
+    )
 
     # freeze VAE — fp16 is fine since it is never updated
     vae.requires_grad_(False)
@@ -193,18 +213,21 @@ def train(config: DreamBoothConfig):
         text_encoder.train()
         if hasattr(text_encoder, "gradient_checkpointing_enable"):
             text_encoder.gradient_checkpointing_enable()
-        identifier_embedding_params, identifier_token_ids = _enable_identifier_embedding_training(
-            tokenizer,
-            text_encoder,
-            config.identifier_token,
+        identifier_embedding_params, identifier_token_ids = (
+            _enable_identifier_embedding_training(
+                tokenizer,
+                text_encoder,
+                config.identifier_token,
+            )
         )
         print(f"  Identifier token ids: {identifier_token_ids}")
         if len(identifier_token_ids) > 1:
-            print("  [Note] identifier splits into multiple tokens; a single-token identifier is usually stronger.")
+            print(
+                "  [Note] identifier splits into multiple tokens; a single-token identifier is usually stronger."
+            )
 
-    
     # PREPARE DATASET
-    
+
     print("\n[2/5] Preparing dataset...")
 
     dataset = DreamBoothDataset(
@@ -230,14 +253,15 @@ def train(config: DreamBoothConfig):
         num_workers=0,  # Keep simple for small datasets
     )
 
-   
     # 3. SETUP OPTIMIZER
     print("\n[3/5] Setting up optimizer...")
 
     # collect trainable parameters
     unet_params = [p for p in unet.parameters() if p.requires_grad]
     if not unet_params:
-        raise RuntimeError(f"No UNet parameters selected for mode '{config.unet_train_mode}'")
+        raise RuntimeError(
+            f"No UNet parameters selected for mode '{config.unet_train_mode}'"
+        )
     params_to_optimize = list(unet_params)
     optimizer_param_groups = [
         {"params": unet_params, "weight_decay": config.adam_weight_decay},
@@ -269,9 +293,8 @@ def train(config: DreamBoothConfig):
     total_params = sum(p.numel() for p in params_to_optimize if p.requires_grad)
     print(f"  Trainable parameters: {total_params:,}")
 
-
     # 4. TRAINING LOOP
-  
+
     print("\n[4/5] Training...")
 
     global_step = 0
@@ -299,8 +322,12 @@ def train(config: DreamBoothConfig):
 
             # [DEBUG] check latent health on first step
             if global_step == 0:
-                tqdm.write(f"[DEBUG] pixel_values: shape={pixel_values.shape} min={pixel_values.min():.3f} max={pixel_values.max():.3f} nan={pixel_values.isnan().any()}")
-                tqdm.write(f"[DEBUG] latents:       shape={latents.shape} mean={latents.float().mean():.3f} std={latents.float().std():.3f} nan={latents.isnan().any()}")
+                tqdm.write(
+                    f"[DEBUG] pixel_values: shape={pixel_values.shape} min={pixel_values.min():.3f} max={pixel_values.max():.3f} nan={pixel_values.isnan().any()}"
+                )
+                tqdm.write(
+                    f"[DEBUG] latents:       shape={latents.shape} mean={latents.float().mean():.3f} std={latents.float().std():.3f} nan={latents.isnan().any()}"
+                )
 
             # sample noise and timesteps
             noise = torch.randn_like(latents)
@@ -331,12 +358,16 @@ def train(config: DreamBoothConfig):
 
                 # [DEBUG] check noise_pred health on first step
                 if global_step == 0:
-                    tqdm.write(f"[DEBUG] noise_pred:   shape={noise_pred.shape} mean={noise_pred.float().mean():.3f} std={noise_pred.float().std():.3f} nan={noise_pred.isnan().any()} inf={noise_pred.isinf().any()}")
+                    tqdm.write(
+                        f"[DEBUG] noise_pred:   shape={noise_pred.shape} mean={noise_pred.float().mean():.3f} std={noise_pred.float().std():.3f} nan={noise_pred.isnan().any()} inf={noise_pred.isinf().any()}"
+                    )
 
                 # compute total loss
                 if config.prior_preservation:
                     # split predictions back into subject and class halves
-                    noise_pred_subject, noise_pred_class = torch.chunk(noise_pred, 2, dim=0)
+                    noise_pred_subject, noise_pred_class = torch.chunk(
+                        noise_pred, 2, dim=0
+                    )
                     noise_subject, noise_class = torch.chunk(noise, 2, dim=0)
 
                     # compute reconstruction loss on subject images
@@ -386,13 +417,23 @@ def train(config: DreamBoothConfig):
                 if config.prior_preservation:
                     log_msg += f" (subject={loss_subject.item():.4f}, prior={loss_prior.item():.4f})"
                 if math.isnan(loss_val) or math.isinf(loss_val):
-                    log_msg += "  *** WARNING: loss is NaN/Inf — weights are corrupted ***"
+                    log_msg += (
+                        "  *** WARNING: loss is NaN/Inf — weights are corrupted ***"
+                    )
                 tqdm.write(log_msg)
 
-            # checkpointing 
+            # checkpointing
             if global_step % config.save_every_n_steps == 0:
                 save_path = Path(config.output_dir) / f"checkpoint-{global_step}"
-                _save_pipeline(config, unet, text_encoder, vae, tokenizer, noise_scheduler, save_path)
+                _save_pipeline(
+                    config,
+                    unet,
+                    text_encoder,
+                    vae,
+                    tokenizer,
+                    noise_scheduler,
+                    save_path,
+                )
                 tqdm.write(f"  Saved checkpoint to {save_path}")
 
     progress_bar.close()
@@ -404,15 +445,21 @@ def train(config: DreamBoothConfig):
             nan_params += 1
         if p.isinf().any():
             inf_params += 1
-    print(f"\n[DEBUG] UNet weight health: {nan_params} params with NaN, {inf_params} params with Inf")
+    print(
+        f"\n[DEBUG] UNet weight health: {nan_params} params with NaN, {inf_params} params with Inf"
+    )
     if nan_params > 0 or inf_params > 0:
-        print("[DEBUG] *** Weights are corrupted — saved model will produce black images ***")
+        print(
+            "[DEBUG] *** Weights are corrupted — saved model will produce black images ***"
+        )
 
     # SAVE FINAL MODEL
 
     print("\n[5/5] Saving final model...")
     final_path = Path(config.output_dir) / "final"
-    _save_pipeline(config, unet, text_encoder, vae, tokenizer, noise_scheduler, final_path)
+    _save_pipeline(
+        config, unet, text_encoder, vae, tokenizer, noise_scheduler, final_path
+    )
     print(f"  Model saved to {final_path}")
     print("\nTraining complete!")
 
@@ -434,39 +481,79 @@ def _save_pipeline(config, unet, text_encoder, vae, tokenizer, scheduler, save_p
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train DreamBooth")
-    parser.add_argument("--subject_dir", type=str, required=True,
-                        help="Directory with 3-5 subject images")
-    parser.add_argument("--class_dir", type=str, default="./data/class_images",
-                        help="Directory with pre-generated class images")
-    parser.add_argument("--class_noun", type=str, default="dog",
-                        help='Class descriptor (e.g. "dog", "cat", "backpack")')
-    parser.add_argument("--identifier", type=str, default="sks",
-                        help="Unique identifier token for the subject")
-    parser.add_argument("--output_dir", type=str, default="./output",
-                        help="Where to save the fine-tuned model")
-    parser.add_argument("--lr", type=float, default=5e-6,
-                        help="Learning rate")
+    parser.add_argument(
+        "--subject_dir",
+        type=str,
+        required=True,
+        help="Directory with 3-5 subject images",
+    )
+    parser.add_argument(
+        "--class_dir",
+        type=str,
+        default="./data/class_images",
+        help="Directory with pre-generated class images",
+    )
+    parser.add_argument(
+        "--class_noun",
+        type=str,
+        default="dog",
+        help='Class descriptor (e.g. "dog", "cat", "backpack")',
+    )
+    parser.add_argument(
+        "--identifier",
+        type=str,
+        default="sks",
+        help="Unique identifier token for the subject",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="./output",
+        help="Where to save the fine-tuned model",
+    )
+    parser.add_argument("--lr", type=float, default=5e-6, help="Learning rate")
     parser.add_argument("--text_encoder_lr", type=float, default=1e-6)
-    parser.add_argument("--steps", type=int, default=1000,
-                        help="Max training steps")
-    parser.add_argument("--no_prior_preservation", action="store_true",
-                        help="Disable prior preservation loss")
-    parser.add_argument("--train_text_encoder", action="store_true",
-                        help="Train the full text encoder. High VRAM.")
-    parser.add_argument("--no_train_text_encoder", action="store_true",
-                        help=argparse.SUPPRESS)
-    parser.add_argument("--no_identifier_embedding", action="store_true",
-                        help="Disable low-memory identifier-token embedding training")
-    parser.add_argument("--unet_train_mode", type=str, default="cross_attention",
-                        choices=["full", "attention", "cross_attention"],
-                        help="How much of the UNet to train")
-    parser.add_argument("--mixed_precision", type=str, default="fp16",
-                        choices=["no", "fp16", "bf16"],
-                        help="Forward/activation precision")
-    parser.add_argument("--no_8bit_adam", action="store_true",
-                        help="Disable bitsandbytes AdamW8bit")
-    parser.add_argument("--no_xformers", action="store_true",
-                        help="Disable xFormers memory-efficient attention")
+    parser.add_argument("--steps", type=int, default=1000, help="Max training steps")
+    parser.add_argument(
+        "--no_prior_preservation",
+        action="store_true",
+        help="Disable prior preservation loss",
+    )
+    parser.add_argument(
+        "--train_text_encoder",
+        action="store_true",
+        help="Train the full text encoder. High VRAM.",
+    )
+    parser.add_argument(
+        "--no_train_text_encoder", action="store_true", help=argparse.SUPPRESS
+    )
+    parser.add_argument(
+        "--no_identifier_embedding",
+        action="store_true",
+        help="Disable low-memory identifier-token embedding training",
+    )
+    parser.add_argument(
+        "--unet_train_mode",
+        type=str,
+        default="cross_attention",
+        choices=["full", "attention", "cross_attention"],
+        help="How much of the UNet to train",
+    )
+    parser.add_argument(
+        "--mixed_precision",
+        type=str,
+        default="fp16",
+        choices=["no", "fp16", "bf16"],
+        help="Forward/activation precision",
+    )
+    parser.add_argument(
+        "--no_8bit_adam", action="store_true", help="Disable bitsandbytes AdamW8bit"
+    )
+    parser.add_argument(
+        "--no_xformers",
+        action="store_true",
+        help="Disable xFormers memory-efficient attention",
+    )
     parser.add_argument("--resolution", type=int, default=512)
     parser.add_argument("--seed", type=int, default=42)
 
@@ -479,7 +566,6 @@ if __name__ == "__main__":
         identifier_token=args.identifier,
         output_dir=args.output_dir,
         learning_rate=args.lr,
-        text_encoder_lr=args.text_encoder_lr,
         max_train_steps=args.steps,
         prior_preservation=not args.no_prior_preservation,
         train_text_encoder=args.train_text_encoder and not args.no_train_text_encoder,
