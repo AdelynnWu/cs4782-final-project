@@ -48,7 +48,7 @@ def train(config: DreamBoothConfig):
     """Run the full DreamBooth training pipeline."""
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    weight_dtype = torch.float32
+    weight_dtype = torch.float16
 
     print("=" * 60)
     print("DreamBooth Training")
@@ -87,8 +87,10 @@ def train(config: DreamBoothConfig):
     text_encoder.requires_grad_(False)
     text_encoder.to(device, dtype=weight_dtype)
     if config.train_text_encoder:
-        text_encoder.to(device, dtype=torch.float32)
+        text_encoder.to(device, dtype=torch.float16)
+        text_encoder.requires_grad_(True)
         text_encoder.train()
+        text_encoder.gradient_checkpointing_enable()
     else:
         text_encoder.requires_grad_(False)
         text_encoder.to(device, dtype=weight_dtype)
@@ -126,13 +128,36 @@ def train(config: DreamBoothConfig):
     print("\n[3/5] Setting up optimizer...")
 
     # collect trainable parameters
-    params_to_optimize = list(unet.parameters())
+    # params_to_optimize = list(unet.parameters())
+    # if config.train_text_encoder:
+    #     params_to_optimize += list(text_encoder.parameters())
+
+    # optimizer = torch.optim.AdamW(
+    #     params_to_optimize,
+    #     lr=config.learning_rate,
+    #     betas=(config.adam_beta1, config.adam_beta2),
+    #     weight_decay=config.adam_weight_decay,
+    #     eps=config.adam_epsilon,
+    #     foreach=False,
+    # )
+
+    params_to_optimize = [
+        {
+            "params": unet.parameters(),
+            "lr": config.learning_rate,  # e.g. 5e-6
+        }
+    ]
+
     if config.train_text_encoder:
-        params_to_optimize += list(text_encoder.parameters())
+        params_to_optimize.append(
+            {
+                "params": text_encoder.parameters(),
+                "lr": config.text_encoder_lr,  # e.g. 1e-6
+            }
+        )
 
     optimizer = torch.optim.AdamW(
         params_to_optimize,
-        lr=config.learning_rate,
         betas=(config.adam_beta1, config.adam_beta2),
         weight_decay=config.adam_weight_decay,
         eps=config.adam_epsilon,
@@ -318,7 +343,8 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", type=str, default="./output",
                         help="Where to save the fine-tuned model")
     parser.add_argument("--lr", type=float, default=5e-6,
-                        help="Learning rate (paper: 5e-6 for SD)")
+                        help="Learning rate")
+    parser.add_argument("--text_encoder_lr", type=float, default=1e-6)
     parser.add_argument("--steps", type=int, default=1000,
                         help="Max training steps")
     parser.add_argument("--no_prior_preservation", action="store_true",
@@ -337,6 +363,7 @@ if __name__ == "__main__":
         identifier_token=args.identifier,
         output_dir=args.output_dir,
         learning_rate=args.lr,
+        text_encoder_lr=args.text_encoder_lr,
         max_train_steps=args.steps,
         prior_preservation=not args.no_prior_preservation,
         train_text_encoder=not args.no_train_text_encoder,

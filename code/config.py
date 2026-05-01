@@ -38,7 +38,7 @@ class DreamBoothConfig:
 
     # prior preservation
     prior_preservation: bool = True
-    prior_loss_weight: float = 1.0
+    prior_loss_weight: float = 0.5
     num_class_images: int = 64
 
     # image
@@ -47,6 +47,7 @@ class DreamBoothConfig:
 
     # finetune
     train_text_encoder: bool = True
+    text_encoder_lr: float = 1e-6
 
     # inference
     num_inference_steps: int = 50
