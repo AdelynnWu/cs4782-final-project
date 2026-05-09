@@ -30,7 +30,8 @@ This corresponds to the qualitative comparison in **Figure 4** and the quantitat
 - `results/`: Generated inference images and evaluation outputs, including:
   - Images generated with prior preservation loss weights of 0, 0.25, 0.5, 0.75, and 1.0 at 500 training steps.
   - Images generated with prior preservation loss weight of 0 at 600, 650, 700, and 800 training steps.
-  - Saved model checkpoints for prior loss weights of 0 and 0.25 at 500 training steps.
+  - Saved model for prior loss weights of 0 and 0.25 at 500 training steps.
+  - Other images generated with different prompts/contexts.
   - Evaluation table comparing DINO, CLIP-I, and CLIP-T scores.
 
 - `poster/`: PDF version of the final DreamBooth reimplementation poster.
