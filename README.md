@@ -25,7 +25,7 @@ This corresponds to the qualitative comparison in **Figure 4** and the quantitat
 
 - `code/`: Scripts for DreamBooth dataset preparation, class-prior image generation, training, inference, token utilities, and performance evaluation.
 
-- `data/`: Subject images, generated class-prior images, and saved metric logs.
+- `data/`: Water bottle subject images and generated water bottle class-prior images.
 
 - `results/`: Generated inference images and evaluation outputs, including:
   - Images generated with prior preservation loss weights of 0, 0.25, 0.5, 0.75, and 1.0 at 500 training steps.
