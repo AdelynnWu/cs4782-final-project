@@ -8,12 +8,17 @@ DreamBooth's main contribution is few-shot personalization of a pretrained text-
 
 ## 2. Chosen Result
 
-We tried to reproduce DreamBooth's **subject-driven recontextualization** result to generate a specific subject in new scenes while preserving its visual identity.
+We tried to reproduce DreamBooth's **subject-driven recontextualization** result: generating a specific subject in new scenes while preserving its visual identity.
 
-This corresponds to qualitative results in **Figure 4** and the quantitative metrics in **Table 1** in the paper.
+This corresponds to the qualitative comparison in **Figure 4** and the quantitative metric comparison in **Table 1** from the original paper.
 
-<img width="437" height="688" alt="Screenshot 2026-05-09 at 4 53 39 PM" src="https://github.com/user-attachments/assets/c1bf16b3-5e53-4b99-ac77-3e83229d3763" />
-<img width="441" height="173" alt="Screenshot 2026-05-09 at 4 53 18 PM" src="https://github.com/user-attachments/assets/915c0890-49eb-4a78-9088-e9517feb5476" />
+**Figure 4: Qualitative subject-driven recontextualization comparison**
+
+<img width="449" height="527" alt="Figure 4: Qualitative subject-driven recontextualization comparison" src="https://github.com/user-attachments/assets/aee2d273-5176-4434-b629-f8ef0c68e33a" />
+
+**Table 1: Quantitative comparison using DINO, CLIP-I, and CLIP-T**
+
+<img width="441" height="173" alt="Table 1: Quantitative comparison using DINO, CLIP-I, and CLIP-T" src="https://github.com/user-attachments/assets/915c0890-49eb-4a78-9088-e9517feb5476" />
 
 
 ## 3. GitHub Contents
@@ -36,13 +41,13 @@ This corresponds to qualitative results in **Figure 4** and the quantitative met
 
 ## 4. Re-implementation Details
 
-The implementation fine-tunes `sd-legacy/stable-diffusion-v1-5` on 5 subject images using the identifier `vy` and class noun `water bottle`, with 200 generated water-bottle class-prior images.
+We fine-tuned `sd-legacy/stable-diffusion-v1-5` on 5 subject images using the identifier `vy` and class noun `water bottle`, with 200 generated water-bottle class-prior images.
 
 Training uses 512x512 crops, batch size 1, learning rate `5e-6`, fp16 CUDA execution, 8-bit Adam, identifier-embedding training, cross-attention UNet updates, and generated class-prior batches.
 
 Evaluation uses the paper's metrics: **CLIP-I** and **DINO** for subject fidelity, plus **CLIP-T** for prompt fidelity.
 
-Main modifications from the original paper: Instead of using Imagen and full-model fine-tuning, this implementation uses Stable Diffusion v1.5 and only trains the identifier token embedding plus selected UNet cross-attention layers to fit within Colab GPU memory limits. We also reduce the experimental scale from the paper’s full multi-subject benchmark to one subject category, `water bottle`, with 5 subject images and a smaller prompt set. The class-prior dataset is also reduced to 200 generated water-bottle images instead of the much larger prior set used in the original DreamBooth setup. Because of these compute limits, our results focus on small-scale subject binding and metric comparison rather than fully reproducing the paper’s large-scale Imagen results.
+Main modifications from the original paper: Our implementation uses Stable Diffusion v1.5 instead of Imagen and fine-tunes only the identifier token embedding plus selected UNet cross-attention layers to fit Colab GPU limits. We also scale down the experiment to one subject category, water bottle, using 5 subject images, 200 generated class-prior images, and a smaller prompt set. Because of these constraints, our results focus on small-scale subject binding and metric comparison rather than full reproduction of the paper’s large-scale results
 
 ## 5. Reproduction Steps
 
@@ -52,8 +57,8 @@ Install dependencies in a CUDA environment:
 ```bash
 pip install torch torchvision diffusers transformers accelerate pillow tqdm bitsandbytes
 ```
-Here, replace `<identifier>` with your unique token, `<class noun>` with the subject class, `<class_name>` with a folder-safe version of the class name, and `<new context>` with the inference setting you want to test.<img width="411" height="96" alt="Screenshot 2026-05-09 at 5 09 18 PM" src="https://github.com/user-attachments/assets/d7c5969c-59af-4a5d-bb8c-073e7851ac83" />
-<img width="404" height="81" alt="Screenshot 2026-05-09 at 5 08 43 PM" src="https://github.com/user-attachments/assets/aad514eb-9d11-4d58-a1e8-d8880ee2aade" />
+Here, replace `<identifier>` with your unique token, `<class noun>` with the subject class, `<class_name>` with a folder-safe version of the class name, and `<new context>` with the inference setting you want to test.
+
 
 
 Generate class-prior images:
@@ -100,7 +105,7 @@ python code/performance.py \
   --output data/clip_dino_outputs/<run_name>
 ```
 
-A CUDA GPU is strongly recommended; the low-memory configuration targets roughly 14-16 GB VRAM.
+We used T4 GPU on Colab during training.
 
 ## 6. Results / Insights
 ### Expected Results
@@ -109,20 +114,20 @@ Running this repository trains a small-scale DreamBooth-style personalized Stabl
 
 The repository also produces generated images and evaluation outputs using DINO, CLIP-I, and CLIP-T. These metrics compare subject fidelity and prompt fidelity against the evaluation style used in the original DreamBooth paper.
 
-Users should expect reasonable subject-conditioned generation and metric logs, but not full reproduction of the original paper’s large-scale performance.
-###Our DINO/CLIP-I/CLIP-T result
+You can expect reasonable subject-conditioned generation and metric logs, but not full reproduction of the original paper’s large-scale performance.
+
+### Our Result and Insights
 
 <img width="406" height="88" alt="Evaluation table comparing DINO, CLIP-I, and CLIP-T scores" src="https://github.com/user-attachments/assets/0bebcf14-8f65-448b-b789-d10a027cde50" />
 
-Our CLIP-I and CLIP-T scores are comparable to the paper's Stable Diffusion reference on this single-subject run, but DINO is lower, suggesting weaker fine-grained subject identity preservation.
 
-This is not an apples-to-apples benchmark: the paper's Table 1 averages over 30 subjects and many prompts, while this repository reports a focused water-bottle reproduction.
+Our CLIP-I and CLIP-T scores are comparable to the paper's Stable Diffusion reference on this single-subject run, but DINO is lower, suggesting that the preservation of some fine-grained details is weaker.
 
 ## 7. Conclusion
 
 This reimplementation shows that the core DreamBooth idea can be reproduced with Stable Diffusion v1.5 under limited GPU resources.
 
-The main lesson is that prompt fidelity is achievable with a compact setup, while robust subject identity requires careful tuning of training length, trainable model components, and prior preservation. In our experiments, prior preservation loss did not appear to be essential for achieving reasonable subject-conditioned generation. This suggests that, under a partial fine-tuning setup, prior preservation may be less important than in the original full fine-tuning DreamBooth setting.
+The main lesson is that prompt fidelity is achievable with a compact setup, while robust subject identity and diversity require careful tuning of training length, trainable model components, and prior preservation. In our experiments, prior preservation loss did not appear to be essential for achieving reasonable subject-conditioned generation. This suggests that, under a partial fine-tuning setup, prior preservation may be less important than in the original full fine-tuning DreamBooth setting.
 
 ## 8. References
 
