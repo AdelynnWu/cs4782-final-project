@@ -12,24 +12,27 @@ We tried to reproduce DreamBooth's **subject-driven recontextualization** result
 
 This corresponds to qualitative results in **Figure 4** and the quantitative metrics in **Table 1** in the paper.
 
-// UPLOAD THE IMAGES
+<img width="437" height="688" alt="Screenshot 2026-05-09 at 4 53 39 PM" src="https://github.com/user-attachments/assets/c1bf16b3-5e53-4b99-ac77-3e83229d3763" />
+<img width="441" height="173" alt="Screenshot 2026-05-09 at 4 53 18 PM" src="https://github.com/user-attachments/assets/915c0890-49eb-4a78-9088-e9517feb5476" />
+
 
 ## 3. GitHub Contents
 
-- `code/`: DreamBooth dataset, class-prior generation, training, inference, token utilities, and performance evaluation scripts.
-- `data/`: subject images, generated class-prior images, and saved metric logs
-- `results/`:
+- `code/`: Scripts for DreamBooth dataset preparation, class-prior image generation, training, inference, token utilities, and performance evaluation.
 
-• code/: A directory containing your re-implementation code, along with any necessary configuration
-files or scripts.
-• data/: A directory containing the datasets used for training and evaluation, or a README with
-instruction on how to obtain the dataset.
-• results/: A directory containing the results of your re-implementation, including any generated figures,
-tables, or log files.
-• poster/: A directory containing a PDF of the poster used for your in-class presentations.
-• report/: A directory containing a PDF of the final report submitted.
-• LICENSE: A file specifying the license under which your code is released (e.g., MIT, Apache 2.0).
-• .gitignore: A file specifying files or directories that should be ignored by Git.
+- `data/`: Subject images, generated class-prior images, and saved metric logs.
+
+- `results/`: Generated inference images and evaluation outputs, including:
+  - Images generated with prior preservation loss weights of 0, 0.25, 0.5, 0.75, and 1.0 at 500 training steps.
+  - Images generated with prior preservation loss weight of 0 at 800 training steps.
+  - Saved model checkpoints for prior loss weights of 0 and 0.25 at 500 training steps.
+  - Evaluation table comparing DINO, CLIP-I, and CLIP-T scores.
+
+- `poster/`: PDF version of the final DreamBooth reimplementation poster.
+
+- `report/`: PDF version of the final DreamBooth reimplementation report.
+
+
 
 ## 4. Re-implementation Details
 
@@ -39,71 +42,77 @@ Training uses 512x512 crops, batch size 1, learning rate `5e-6`, fp16 CUDA execu
 
 Evaluation uses the paper's metrics: **CLIP-I** and **DINO** for subject fidelity, plus **CLIP-T** for prompt fidelity.
 
-Main modifications from the original paper: Stable Diffusion v1.5 replaces Imagen, only a small number of subjects/prompts are tested, and partial UNet fine-tuning is used to fit Colab-scale GPU memory.
+Main modifications from the original paper: Instead of using Imagen and full-model fine-tuning, this implementation uses Stable Diffusion v1.5 and only trains the identifier token embedding plus selected UNet cross-attention layers to fit within Colab GPU memory limits. We also reduce the experimental scale from the paper’s full multi-subject benchmark to one subject category, `water bottle`, with 5 subject images and a smaller prompt set. The class-prior dataset is also reduced to 200 generated water-bottle images instead of the much larger prior set used in the original DreamBooth setup. Because of these compute limits, our results focus on small-scale subject binding and metric comparison rather than fully reproducing the paper’s large-scale Imagen results.
 
 ## 5. Reproduction Steps
+
 
 Install dependencies in a CUDA environment:
 
 ```bash
 pip install torch torchvision diffusers transformers accelerate pillow tqdm bitsandbytes
 ```
+Here, replace `<identifier>` with your unique token, `<class noun>` with the subject class, `<class_name>` with a folder-safe version of the class name, and `<new context>` with the inference setting you want to test.<img width="411" height="96" alt="Screenshot 2026-05-09 at 5 09 18 PM" src="https://github.com/user-attachments/assets/d7c5969c-59af-4a5d-bb8c-073e7851ac83" />
+<img width="404" height="81" alt="Screenshot 2026-05-09 at 5 08 43 PM" src="https://github.com/user-attachments/assets/aad514eb-9d11-4d58-a1e8-d8880ee2aade" />
+
 
 Generate class-prior images:
 
 ```bash
 python code/generate_class_data.py \
-  --class_prompt "a photo of a water bottle" \
-  --num_images 200 \
-  --output_dir data/class_images_waterbottle \
-  --batch_size 4
+  --class_prompt "a photo of a <class noun>" \
+  --num_images 200 \
+  --output_dir data/class_images_<class_name> \
+  --batch_size 4
 ```
 
 Train the personalized model:
 
 ```bash
 python code/train.py \
-  --subject_dir data/water-bottle-subject-img \
-  --class_dir data/class_images_waterbottle \
-  --class_noun "water bottle" \
-  --identifier "vy" \
-  --output_dir output/models/model-vy-water-bottle \
-  --steps 800 \
-  --lr 5e-6 \
-  --unet_train_mode cross_attention
+  --subject_dir data/<subject_images_dir> \
+  --class_dir data/class_images_<class_name> \
+  --class_noun "<class noun>" \
+  --identifier "<identifier>" \
+  --output_dir output/models/model-<identifier>-<class_name> \
+  --steps 800 \
+  --lr 5e-6 \
+  --unet_train_mode cross_attention
 ```
 
 Generate images:
 
 ```bash
 python code/inference.py \
-  --model_path output/models/model-vy-water-bottle/final \
-  --prompt "a photo of a vy water bottle on a beach" \
-  --num_images 4 \
-  --output_dir output/generated_water_bottle
+  --model_path output/models/model-<identifier>-<class_name>/final \
+  --prompt "a photo of a <identifier> <class noun> in <new context>" \
+  --num_images 4 \
+  --output_dir output/generated_<class_name>
 ```
 
 Evaluate generated images:
 
 ```bash
 python code/performance.py \
-  --real_dir data/water-bottle-subject-img \
-  --gen_dir output/generated_water_bottle \
-  --prompt "a photo of a vy water bottle on a beach" \
-  --output data/clip_dino_outputs/my_run
+  --real_dir data/<subject_images_dir> \
+  --gen_dir output/generated_<class_name> \
+  --prompt "a photo of a <identifier> <class noun> in <new context>" \
+  --output data/clip_dino_outputs/<run_name>
 ```
 
 A CUDA GPU is strongly recommended; the low-memory configuration targets roughly 14-16 GB VRAM.
 
 ## 6. Results / Insights
+### Expected Results
 
-Best committed water-bottle beach run:
+Running this repository trains a small-scale DreamBooth-style personalized Stable Diffusion model. The final output is a model that can generate the target subject in new contexts using prompts that include the chosen identifier token.
 
-| Run                                             |   DINO | CLIP-I | CLIP-T |
-| ----------------------------------------------- | -----: | -----: | -----: |
-| DreamBooth Stable Diffusion, paper Table 1      |  0.668 |  0.803 |  0.305 |
-| Ours, water bottle, prior weight 0.0, 800 steps | 0.5535 | 0.8263 | 0.3127 |
-| Ours, water bottle, prior weight 0.0, 500 steps | 0.5472 | 0.7661 | 0.3171 |
+The repository also produces generated images and evaluation outputs using DINO, CLIP-I, and CLIP-T. These metrics compare subject fidelity and prompt fidelity against the evaluation style used in the original DreamBooth paper.
+
+Users should expect reasonable subject-conditioned generation and metric logs, but not full reproduction of the original paper’s large-scale performance.
+###Our DINO/CLIP-I/CLIP-T result
+
+<img width="406" height="88" alt="Evaluation table comparing DINO, CLIP-I, and CLIP-T scores" src="https://github.com/user-attachments/assets/0bebcf14-8f65-448b-b789-d10a027cde50" />
 
 Our CLIP-I and CLIP-T scores are comparable to the paper's Stable Diffusion reference on this single-subject run, but DINO is lower, suggesting weaker fine-grained subject identity preservation.
 
@@ -113,7 +122,7 @@ This is not an apples-to-apples benchmark: the paper's Table 1 averages over 30 
 
 This reimplementation shows that the core DreamBooth idea can be reproduced with Stable Diffusion v1.5 under limited GPU resources.
 
-The main lesson is that prompt fidelity is achievable with a compact setup, while robust subject identity requires careful tuning of prior preservation, training length, and trainable model components.
+The main lesson is that prompt fidelity is achievable with a compact setup, while robust subject identity requires careful tuning of training length, trainable model components, and prior preservation. In our experiments, prior preservation loss did not appear to be essential for achieving reasonable subject-conditioned generation. This suggests that, under a partial fine-tuning setup, prior preservation may be less important than in the original full fine-tuning DreamBooth setting.
 
 ## 8. References
 
