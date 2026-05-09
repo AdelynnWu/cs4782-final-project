@@ -66,7 +66,7 @@ Generate class-prior images:
 
 ```bash
 python code/generate_class_data.py \
-  --class_prompt "a photo of a <class noun>" \
+  --class_prompt "<class noun>" \
   --num_images 200 \
   --output_dir data/class_images_<class_name> \
   --batch_size 4
