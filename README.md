@@ -83,7 +83,8 @@ python code/train.py \
   --output_dir output/models/model-<identifier>-<class_name> \
   --steps 800 \
   --lr 5e-6 \
-  --unet_train_mode cross_attention
+  --unet_train_mode cross_attention \
+  --no_prior_preservation 
 ```
 
 Generate images:
