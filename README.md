@@ -25,7 +25,7 @@ This corresponds to the qualitative comparison in **Figure 4** and the quantitat
 
 - `code/`: Scripts for DreamBooth dataset preparation, class-prior image generation, training, inference, token utilities, and performance evaluation.
 
-- `data/`: Subject images, generated class-prior images, and saved metric logs.
+- `data/`: Water bottle subject images and generated water bottle class-prior images.
 
 - `results/`: Generated inference images and evaluation outputs, including:
   - Images generated with prior preservation loss weights of 0, 0.25, 0.5, 0.75, and 1.0 at 500 training steps.
@@ -66,7 +66,7 @@ Generate class-prior images:
 
 ```bash
 python code/generate_class_data.py \
-  --class_prompt "a photo of a <class noun>" \
+  --class_prompt "<class noun>" \
   --num_images 200 \
   --output_dir data/class_images_<class_name> \
   --batch_size 4
@@ -83,7 +83,8 @@ python code/train.py \
   --output_dir output/models/model-<identifier>-<class_name> \
   --steps 800 \
   --lr 5e-6 \
-  --unet_train_mode cross_attention
+  --unet_train_mode cross_attention \
+  --no_prior_preservation 
 ```
 
 Generate images:
