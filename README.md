@@ -51,7 +51,9 @@ Evaluation uses the paper's metrics: **CLIP-I** and **DINO** for subject fidelit
 Main modifications from the original paper: Our implementation uses Stable Diffusion v1.5 instead of Imagen and fine-tunes only the identifier token embedding plus selected UNet cross-attention layers to fit Colab GPU limits. We also scale down the experiment to one subject category, water bottle, using 5 subject images, 200 generated class-prior images, and a smaller prompt set. Because of these constraints, our results focus on small-scale subject binding and metric comparison rather than full reproduction of the paper’s large-scale results
 
 ## 5. Reproduction Steps
+You can run `code/train.ipynb` in colab to reproduce the results.
 
+Below are the step by step instructions:
 
 Install dependencies in a CUDA environment:
 
@@ -59,8 +61,6 @@ Install dependencies in a CUDA environment:
 pip install torch torchvision diffusers transformers accelerate pillow tqdm bitsandbytes
 ```
 Here, replace `<identifier>` with your unique token, `<class noun>` with the subject class, `<class_name>` with a folder-safe version of the class name, and `<new context>` with the inference setting you want to test.
-
-
 
 Generate class-prior images:
 
