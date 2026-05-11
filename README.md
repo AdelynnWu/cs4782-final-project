@@ -125,6 +125,8 @@ You can expect reasonable subject-conditioned generation and metric logs, but no
 
 Our CLIP-I and CLIP-T scores are comparable to the paper's Stable Diffusion reference on this single-subject run, but DINO is lower, suggesting that the preservation of some fine-grained details is weaker.
 
+You can download our trained models at https://drive.google.com/drive/folders/1hl_jNxiPgVY4VQhFc-YtaoEE0mmqhzUh?usp=sharing (as the files are too large to be uploaded to GitHub)
+
 ## 7. Conclusion
 
 This reimplementation shows that the core DreamBooth idea can be reproduced with Stable Diffusion v1.5 under limited GPU resources.
